@@ -25,6 +25,10 @@ struct Color {
     uint8_t b;
 };
 
+// Reference world origin used by plot_points_on_osm_FINAL.py (kth_day_06 first pose).
+const Eigen::Vector3d kInitialPositionKthDay06(
+    64.3932532565158, 66.4832330946657, 38.5143341050069);
+
 Color colorFromLabel(uint32_t label) {
     const uint32_t h = label * 2654435761u;
     return Color{
@@ -71,16 +75,10 @@ continuous_bki::Point3D transformPoint(const Eigen::Matrix4d& t, const continuou
 
 std::pair<double, double> transformOSMPointLikeBKI(
     double x,
-    double y,
-    const Eigen::Matrix4d& first_body_to_world,
-    const Eigen::Matrix4d& world_to_first) {
-    // Match BKISemanticMapping::OSMVisualizer::transformToFirstPoseOrigin:
-    // local -> world (add first pose translation) -> first-pose-relative frame.
-    const double world_x = x + first_body_to_world(0, 3);
-    const double world_y = y + first_body_to_world(1, 3);
-    const Eigen::Vector4d p_world(world_x, world_y, 0.0, 1.0);
-    const Eigen::Vector4d p_rel = world_to_first * p_world;
-    return {p_rel(0), p_rel(1)};
+    double y) {
+    // OSM parser already outputs local ENU coordinates around osm_origin_lat/lon.
+    // With kth_day_06 as anchor, keep OSM in that local anchor frame.
+    return {x, y};
 }
 
 }  // namespace
@@ -128,12 +126,12 @@ int main(int argc, char** argv) {
 
     std::unordered_map<int, Eigen::Matrix4d> lidar_to_map_by_scan_id;
     lidar_to_map_by_scan_id.reserve(poses.size());
-    const Eigen::Matrix4d first_body_to_world = poseToMatrix(poses.front());
-    const Eigen::Matrix4d world_to_first = first_body_to_world.inverse();
 
     for (const auto& pose : poses) {
-        const Eigen::Matrix4d body_to_world = poseToMatrix(pose);
-        const Eigen::Matrix4d body_to_world_rel = world_to_first * body_to_world;
+        Eigen::Matrix4d body_to_world_rel = poseToMatrix(pose);
+        body_to_world_rel(0, 3) -= kInitialPositionKthDay06(0);
+        body_to_world_rel(1, 3) -= kInitialPositionKthDay06(1);
+        body_to_world_rel(2, 3) -= kInitialPositionKthDay06(2);
         const Eigen::Matrix4d lidar_to_map = body_to_world_rel * lidar_to_body;
         lidar_to_map_by_scan_id[pose.scan_id] = lidar_to_map;
     }
@@ -217,10 +215,8 @@ int main(int argc, char** argv) {
         if (way.points.size() < 2) continue;
         const Color c = colorForOSM(way);
         for (size_t j = 0; j + 1 < way.points.size(); ++j) {
-            const auto a = transformOSMPointLikeBKI(
-                way.points[j].first, way.points[j].second, first_body_to_world, world_to_first);
-            const auto b = transformOSMPointLikeBKI(
-                way.points[j + 1].first, way.points[j + 1].second, first_body_to_world, world_to_first);
+            const auto a = transformOSMPointLikeBKI(way.points[j].first, way.points[j].second);
+            const auto b = transformOSMPointLikeBKI(way.points[j + 1].first, way.points[j + 1].second);
             pcl::PointXYZ pa(static_cast<float>(a.first), static_cast<float>(a.second), 0.05f);
             pcl::PointXYZ pb(static_cast<float>(b.first), static_cast<float>(b.second), 0.05f);
             const std::string id = "osm_seg_" + std::to_string(i) + "_" + std::to_string(j);
@@ -239,6 +235,10 @@ int main(int argc, char** argv) {
     std::cout << "Map points=" << map_cloud->points.size()
               << ", scans loaded=" << scans_loaded
               << ", scans skipped=" << scans_skipped
+              << ", anchor_sequence=kth_day_06"
+              << ", initial_position_xyz=[" << kInitialPositionKthDay06(0)
+              << "," << kInitialPositionKthDay06(1)
+              << "," << kInitialPositionKthDay06(2) << "]"
               << ", OSM polylines=" << osm_data.polylines.size()
               << ", OSM segments=" << segment_count
               << ", skip_frames=" << skip_frames << std::endl;
