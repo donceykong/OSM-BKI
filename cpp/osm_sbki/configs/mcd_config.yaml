@@ -3,7 +3,7 @@
 
 dataset_name: "mcd"
 dataset_root_path: "/media/donceykong/doncey_ssd_02/datasets/MCD"
-sequence: "kth_night_05"
+sequence: "kth_day_06"
 skip_frames: 500
 
 osm_file: "kth.osm"
