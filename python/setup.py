@@ -3,19 +3,52 @@ Build the composite_bki_cpp extension (pybind11) and install osm_bki package.
 Scripts expect: import composite_bki_cpp; composite_bki_cpp.run_pipeline(...); composite_bki_cpp.PySemanticBKI(...)
 """
 
+import atexit
 import os
 import sys
 from pathlib import Path
 
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
+from setuptools.command.install import install
+from distutils.cmd import Command
+import shutil
+
+_setup_dir = Path(__file__).resolve().parent
 
 
-class build_ext_in_build_dir(build_ext):
-    """Build extension into python/build/ instead of in-place or build/lib.*/."""
+def _remove_build_artifacts():
+    """Remove build/ and *.egg-info/ from the project dir. Runs at process exit after install."""
+    root = _setup_dir
+    to_remove = ["build", "osm_bki.egg-info", "osms_bki.egg-info"]
+    for p in root.glob("osm_bki-*.egg-info"):
+        to_remove.append(p.name)
+    for name in to_remove:
+        path = root / name
+        if path.exists():
+            shutil.rmtree(path, ignore_errors=True)
+            print(f"Removed {path}")
+
+
+class install_then_clean(install):
+    """Run normal install, then register atexit to remove build/ and egg-info when process exits."""
+    def run(self):
+        install.run(self)
+        atexit.register(_remove_build_artifacts)
+
+
+class clean(Command):
+    """Remove build/ and *.egg-info/. Run manually: python setup.py clean"""
+    user_options = []
+
     def initialize_options(self):
-        build_ext.initialize_options(self)
-        self.build_lib = "build"
+        pass
+
+    def finalize_options(self):
+        pass
+
+    def run(self):
+        _remove_build_artifacts()
 
 
 def get_include_dirs():
@@ -95,5 +128,6 @@ setup(
     ext_modules=[ext],
     install_requires=["numpy>=1.20.0", "pybind11>=2.6.0"],
     setup_requires=["pybind11>=2.6.0"],
-    cmdclass={"build_ext": build_ext_in_build_dir},
+    cmdclass={"build_ext": build_ext, "install": install_then_clean, "clean": clean},
+    options={"egg_info": {"egg_base": "."}},
 )
