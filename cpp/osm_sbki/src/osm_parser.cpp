@@ -89,10 +89,12 @@ class PolylineHandler : public osmium::handler::Handler {
 public:
     PolylineHandler(double origin_lat, double origin_lon, const OSMConfig& config, ParsedOSMData& out)
         : config_(config), out_(out) {
-        meters_per_deg_lat_ = 110540.0;
-        meters_per_deg_lon_ = 111320.0 * std::cos(origin_lat * M_PI / 180.0);
+        scale_ = std::cos(origin_lat * M_PI / 180.0);
         origin_lat_ = origin_lat;
         origin_lon_ = origin_lon;
+        ref_merc_x_ = scale_ * earth_radius_m_ * origin_lon_ * M_PI / 180.0;
+        ref_merc_y_ = scale_ * earth_radius_m_ *
+                      std::log(std::tan((90.0 + origin_lat_) * M_PI / 360.0));
     }
 
     void node(const osmium::Node& node) {
@@ -100,8 +102,9 @@ public:
         if (!node.location().valid()) return;
         const char* natural_tag = node.tags()["natural"];
         if (!natural_tag || std::string(natural_tag) != "tree") return;
-        const float x = static_cast<float>((node.location().lon() - origin_lon_) * meters_per_deg_lon_);
-        const float y = static_cast<float>((node.location().lat() - origin_lat_) * meters_per_deg_lat_);
+        const auto xy = projectToReferenceXY(node.location().lat(), node.location().lon());
+        const float x = static_cast<float>(xy.first);
+        const float y = static_cast<float>(xy.second);
         out_.tagged_points.push_back({x, y});
     }
 
@@ -111,8 +114,9 @@ public:
         for (const auto& node_ref : way.nodes()) {
             const osmium::Location& loc = node_ref.location();
             if (!loc.valid()) continue;
-            const float x = static_cast<float>((loc.lon() - origin_lon_) * meters_per_deg_lon_);
-            const float y = static_cast<float>((loc.lat() - origin_lat_) * meters_per_deg_lat_);
+            const auto xy = projectToReferenceXY(loc.lat(), loc.lon());
+            const float x = static_cast<float>(xy.first);
+            const float y = static_cast<float>(xy.second);
             geom.points.push_back({x, y});
         }
         if (geom.points.size() < 2) return;
@@ -232,8 +236,9 @@ public:
                 for (const auto& node_ref : outer_ring) {
                     const osmium::Location& loc = node_ref.location();
                     if (!loc.valid()) continue;
-                    const float x = static_cast<float>((loc.lon() - origin_lon_) * meters_per_deg_lon_);
-                    const float y = static_cast<float>((loc.lat() - origin_lat_) * meters_per_deg_lat_);
+                    const auto xy = projectToReferenceXY(loc.lat(), loc.lon());
+                    const float x = static_cast<float>(xy.first);
+                    const float y = static_cast<float>(xy.second);
                     geom.points.push_back({x, y});
                 }
                 if (geom.points.size() >= 3) {
@@ -289,12 +294,21 @@ public:
     }
 
 private:
+    std::pair<double, double> projectToReferenceXY(double lat_deg, double lon_deg) const {
+        const double merc_x = scale_ * earth_radius_m_ * lon_deg * M_PI / 180.0;
+        const double merc_y = scale_ * earth_radius_m_ *
+                              std::log(std::tan((90.0 + lat_deg) * M_PI / 360.0));
+        return {merc_x - ref_merc_x_, merc_y - ref_merc_y_};
+    }
+
     const OSMConfig& config_;
     ParsedOSMData& out_;
     double origin_lat_ = 0.0;
     double origin_lon_ = 0.0;
-    double meters_per_deg_lat_ = 0.0;
-    double meters_per_deg_lon_ = 0.0;
+    double scale_ = 1.0;
+    double ref_merc_x_ = 0.0;
+    double ref_merc_y_ = 0.0;
+    static constexpr double earth_radius_m_ = 6378137.0;
 };
 
 }  // namespace
@@ -318,11 +332,10 @@ bool loadOSMConfig(const std::string& config_path, OSMConfig& config, std::strin
         kv[key] = value;
     }
 
-    if (kv.find("osm_file") == kv.end()) {
-        error_msg = "Missing required key osm_file in config.";
-        return false;
+    auto osm_file_it = kv.find("osm_file");
+    if (osm_file_it != kv.end()) {
+        config.osm_file = stripQuotes(osm_file_it->second);
     }
-    config.osm_file = stripQuotes(kv["osm_file"]);
 
     auto origin_lat_it = kv.find("osm_origin_lat");
     auto origin_lon_it = kv.find("osm_origin_lon");
