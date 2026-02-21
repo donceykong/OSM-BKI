@@ -4,6 +4,8 @@ Bayesian Kernel Inference (BKI) for semantic label refinement of LiDAR point clo
 
 This project now features a **Continuous Mapping Engine** (`continuous_bki`) as its core backend, supporting both single-scan refinement and stateful semantic mapping over time.
 
+-
+
 ## Project Structure
 
 ```
