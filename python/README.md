@@ -1,6 +1,6 @@
 # OSM-BKI Python Package
 
-Python bindings and scripts for OSM-S-BKI (Composite BKI): semantic Bayesian Kernel Inference for LiDAR with OpenStreetMap priors.
+Python bindings and scripts for OSM-BKI: semantic Bayesian Kernel Inference for LiDAR with OpenStreetMap priors.
 
 ## Directory Structure
 
@@ -8,7 +8,7 @@ Python bindings and scripts for OSM-S-BKI (Composite BKI): semantic Bayesian Ker
 python/
 ├── README.md              # This file
 ├── requirements.txt       # Python dependencies
-├── setup.py               # Builds composite_bki_cpp extension
+├── setup.py               # Builds osm_bki_cpp extension
 ├── run_osmbki.sh          # Run continuous map training on example data
 ├── run_benchmarks.sh      # Run all benchmarks
 │
@@ -52,7 +52,7 @@ Configs and example data live at the **repo root**:
 
 ## Setup
 
-**Recommended:** Use the `composite-bki` conda environment (or equivalent with `composite_bki_cpp`, scipy, pandas).
+**Recommended:** Use the `osm-bki` conda environment (or equivalent with `osm_bki_cpp`, scipy, pandas).
 
 ### 1. Install dependencies
 
@@ -68,12 +68,12 @@ From the **python** directory:
 pip install -e .
 ```
 
-This builds the `composite_bki_cpp` C++ extension and installs the `osm_bki` package in editable mode.
+This builds the `osm_bki_cpp` C++ extension and installs the `osm_bki` package in editable mode.
 
 ### 3. Verify
 
 ```bash
-python -c "import composite_bki_cpp; print(composite_bki_cpp.PyContinuousBKI)"
+python -c "import osm_bki_cpp; print(osm_bki_cpp.PyContinuousBKI)"
 ```
 
 ---
@@ -146,7 +146,7 @@ Or use `run_benchmarks.sh` to run all with correct paths.
 
 ## Troubleshooting
 
-- **ModuleNotFoundError: composite_bki_cpp**  
+- **ModuleNotFoundError: osm_bki_cpp**  
   Run `pip install -e .` from the `python` directory with your environment activated.
 
 - **Compiler errors**  

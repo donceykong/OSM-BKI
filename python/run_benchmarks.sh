@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run all OSM-BKI benchmarks. Works from any directory: ./python/run_benchmarks.sh or cd python && ./run_benchmarks.sh
-# Requires: conda activate composite-bki (or equivalent env with composite_bki_cpp, scipy, pandas)
+# Requires: conda activate osm-bki (or equivalent env with osm_bki_cpp, scipy, pandas)
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

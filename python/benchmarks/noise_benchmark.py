@@ -5,10 +5,10 @@ Benchmark Composite BKI performance across different noise levels.
 This script:
 1. Generates noisy labels at different noise percentages (logic in this script)
 2. Runs Composite BKI refinement on each
-3. Evaluates against ground truth (using composite_bki.py metrics logic)
+3. Evaluates against ground truth (using osm_bki metrics logic)
 4. Outputs results to CSV
 
-NOTE: This benchmark maintains 1:1 logic parity with composite_bki.py:
+NOTE: This benchmark maintains 1:1 logic parity with osm_bki:
 - Noise generation: Matches the standalone noise script logic
 - Metrics calculation: Uses same compute_metrics logic (skips class 0, only GT classes)
 - BKI parameters: l_scale=3.0, sigma_0=1.0, prior_delta=5.0, alpha_0=0.01
@@ -20,9 +20,9 @@ import csv
 from pathlib import Path
 from datetime import datetime
 
-# Add parent directory to path to import composite_bki_cpp
+# Add parent directory to path to import osm_bki_cpp
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-import composite_bki_cpp
+import osm_bki_cpp
 
 from benchmark_utils import find_label_file
 
@@ -106,9 +106,9 @@ def add_noise(labels_raw, noise_percent, noise_pool):
 
 def calculate_metrics(pred_labels, gt_labels):
     """
-    Calculate accuracy and mIoU (matches composite_bki.py::compute_metrics exactly).
+    Calculate accuracy and mIoU (matches osm_bki::compute_metrics exactly).
     
-    This function is a 1:1 copy of the compute_metrics function from composite_bki.py
+    This function is a 1:1 copy of the compute_metrics function from osm_bki
     to ensure identical evaluation logic. Key behaviors:
     - Only evaluates classes present in ground truth (unique_gt)
     - Skips class 0 (unlabeled/invalid)
@@ -132,7 +132,7 @@ def calculate_metrics(pred_labels, gt_labels):
     unique_gt = np.unique(gt_labels)
     
     for cls in unique_gt:
-        if cls == 0:  # Skip class 0 (matches composite_bki.py line 292)
+        if cls == 0:  # Skip class 0 (matches osm_bki line 292)
             continue
         
         gt_mask = (gt_labels == cls)
@@ -175,7 +175,7 @@ def run_single_benchmark(
     noisy_labels_path
 ):
     """
-    Run a single benchmark iteration (matches composite_bki.py parameters).
+    Run a single benchmark iteration (matches osm_bki parameters).
     
     Args:
         lidar_path: path to LiDAR data
@@ -197,9 +197,9 @@ def run_single_benchmark(
     # Save noisy labels (persistent, not temporary)
     noisy_labels_raw.tofile(noisy_labels_path)
     
-    # Run refinement with parameters matching composite_bki.py defaults
+    # Run refinement with parameters matching osm_bki defaults
     # Using PyContinuousBKI directly instead of run_pipeline
-    bki = composite_bki_cpp.PyContinuousBKI(
+    bki = osm_bki_cpp.PyContinuousBKI(
         osm_path=str(osm_path),
         config_path=str(config_path),
         resolution=1.0,     # Standard resolution

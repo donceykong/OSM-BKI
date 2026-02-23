@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix as sklearn_confusion_matrix
 
-import composite_bki_cpp
+import osm_bki_cpp
 
 from script_utils import ConfigReader, (
     load_body_to_lidar, load_poses_csv, transform_points_to_world,
@@ -187,7 +187,7 @@ def main():
     init_rel_pos = np.array(args.init_rel_pos, dtype=np.float64) if args.init_rel_pos else None
 
     # Train BKI
-    bki = composite_bki_cpp.PyContinuousBKI(
+    bki = osm_bki_cpp.PyContinuousBKI(
         osm_path=args.osm,
         config_path=args.config,
         resolution=args.resolution,

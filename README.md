@@ -1,4 +1,4 @@
-# OSM-BKI: Composite BKI for LiDAR Semantic Segmentation
+# OSM-BKI: Bayesian Kernel Inference for LiDAR Semantic Segmentation
 
 Bayesian Kernel Inference (BKI) for semantic label refinement of LiDAR point clouds using OpenStreetMap (OSM) priors.
 
@@ -78,11 +78,11 @@ See `configs/mcd_config.yaml` and [python/README.md](python/README.md) for detai
 ## Python API
 
 ```python
-import composite_bki_cpp
+import osm_bki_cpp
 import numpy as np
 
 # Initialize BKI engine
-bki = composite_bki_cpp.PyContinuousBKI(
+bki = osm_bki_cpp.PyContinuousBKI(
     osm_path="example_data/mcd/kth.osm",
     config_path="configs/mcd_config.yaml",
     resolution=0.5,

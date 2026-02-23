@@ -1,5 +1,5 @@
 /**
- * Python bindings for OSM-S-BKI (composite_bki_cpp).
+ * Python bindings for OSM-BKI (osm_bki_cpp).
  * Exposes PyContinuousBKI matching the Cython bindings.pyx API
  */
 
@@ -214,8 +214,8 @@ private:
     ContinuousBKI bki_;
 };
 
-PYBIND11_MODULE(composite_bki_cpp, m) {
-    m.doc() = "OSM-S-BKI / Composite BKI C++ extension: semantic BKI with OSM priors";
+PYBIND11_MODULE(osm_bki_cpp, m) {
+    m.doc() = "OSM-BKI C++ extension: semantic BKI with OSM priors";
 
     m.def("load_osm_geometries",
           [](const std::string& osm_path, const std::string& config_path, double z_offset) {

@@ -1,7 +1,7 @@
 /**
  * Continuous mapping example (C++).
  *
- * Mirrors OSM-S-BKI/python/scripts/continuous_mapping_example.py:
+ * Mirrors OSM-BKI/python/scripts/continuous_mapping_example.py:
  * - Loads scans and labels from directories
  * - Initializes BKI with OSM prior (binary or XML)
  * - Updates map with each scan; optionally infers and saves refined labels

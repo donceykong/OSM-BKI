@@ -1,6 +1,6 @@
 # osm_bki (C++)
 
-C++ library and tools for OSM-Enhanced Semantic Bayesian Kernel Inference (OSM-SBKI). Here you will find the static library `osm_bki_core` and an optional PCL-based visualization example.
+C++ library and tools for OSM-BKI (Bayesian Kernel Inference for LiDAR with OpenStreetMap priors). Here you will find the static library `osm_bki_core` and an optional PCL-based visualization example.
 
 ## Requirements
 
@@ -146,4 +146,4 @@ Boolean flags to include or exclude OSM categories: buildings, roads, sidewalks,
 
 ## License
 
-See the top-level OSM-S-BKI repository license.
+See the top-level OSM-BKI repository license.

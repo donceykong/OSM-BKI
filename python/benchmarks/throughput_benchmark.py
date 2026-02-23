@@ -28,9 +28,9 @@ except ImportError:
     _HAS_PSUTIL = False
     print("⚠️  psutil not found. Memory measurements will be skipped. (pip install psutil)")
 
-# Add parent directory to path to import composite_bki_cpp
+# Add parent directory to path to import osm_bki_cpp
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-import composite_bki_cpp
+import osm_bki_cpp
 
 # Import benchmark utilities
 from benchmark_utils import (
@@ -78,7 +78,7 @@ def run_thread_scaling(scan_path, label_path, osm_path, config_path, args, scan_
         print(f"Testing with {n_threads} threads...", end=" ", flush=True)
         
         # Initialize (exclude from timing)
-        bki = composite_bki_cpp.PyContinuousBKI(
+        bki = osm_bki_cpp.PyContinuousBKI(
             osm_path=str(osm_path),
             config_path=str(config_path),
             resolution=args.resolution,
@@ -140,7 +140,7 @@ def run_point_scaling(scan_path, label_path, osm_path, config_path, args, scan_n
         points, labels = subsample_points(points_full, labels_full, size)
         
         # Initialize
-        bki = composite_bki_cpp.PyContinuousBKI(
+        bki = osm_bki_cpp.PyContinuousBKI(
             osm_path=str(osm_path),
             config_path=str(config_path),
             resolution=args.resolution,
@@ -197,7 +197,7 @@ def run_resolution_scaling(scan_path, label_path, osm_path, config_path, args, s
         # Keep l_scale/resolution ratio fixed during resolution sweep
         effective_l_scale = args.l_scale * (res / args.resolution)
         start_init = time.perf_counter()
-        bki = composite_bki_cpp.PyContinuousBKI(
+        bki = osm_bki_cpp.PyContinuousBKI(
             osm_path=str(osm_path),
             config_path=str(config_path),
             resolution=res,

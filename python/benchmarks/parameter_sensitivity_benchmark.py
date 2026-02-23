@@ -21,9 +21,9 @@ from pathlib import Path
 from datetime import datetime
 import time
 
-# Add parent directory to path to import composite_bki_cpp
+# Add parent directory to path to import osm_bki_cpp
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-import composite_bki_cpp
+import osm_bki_cpp
 
 # Import benchmark utilities
 from benchmark_utils import (
@@ -91,7 +91,7 @@ def run_config(param_name, param_value, scan_files, label_dir, gt_dir, poses, os
         base_ratio = args.l_scale / args.resolution
         params["l_scale"] = param_value * base_ratio
     
-    bki = composite_bki_cpp.PyContinuousBKI(
+    bki = osm_bki_cpp.PyContinuousBKI(
         osm_path=str(osm_path),
         config_path=str(config_path),
         resolution=params["resolution"],

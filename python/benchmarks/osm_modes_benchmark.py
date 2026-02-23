@@ -18,9 +18,9 @@ from pathlib import Path
 from datetime import datetime
 import time
 
-# Add parent directory to path to import composite_bki_cpp
+# Add parent directory to path to import osm_bki_cpp
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-import composite_bki_cpp
+import osm_bki_cpp
 
 # Import benchmark utilities
 from benchmark_utils import (
@@ -67,7 +67,7 @@ def run_config(config_name, seed, strength, fallback, scan_files, label_dir, gt_
     """Run a single configuration."""
     print(f"\nRunning Config: {config_name} (seed={seed}, str={strength}, fallback={fallback})...")
     
-    bki = composite_bki_cpp.PyContinuousBKI(
+    bki = osm_bki_cpp.PyContinuousBKI(
         osm_path=str(osm_path),
         config_path=str(config_path),
         resolution=args.resolution,

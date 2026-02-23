@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run OSM-BKI continuous map training on example data.
 # Execute from repo root: ./python/run_osmbki.sh
-# Requires: conda activate composite-bki (or equivalent env with composite_bki_cpp)
+# Requires: conda activate osm-bki (or equivalent env with osm_bki_cpp)
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

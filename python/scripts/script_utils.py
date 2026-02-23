@@ -18,9 +18,9 @@ import numpy as np
 import open3d as o3d
 
 try:
-    import composite_bki_cpp
+    import osm_bki_cpp
 except ImportError:
-    composite_bki_cpp = None
+    osm_bki_cpp = None
 
 
 # ---------------------------------------------------------------------------
@@ -193,17 +193,17 @@ def get_osm_geometries(osm_path, config_path, z_offset=0.05,
                        use_thick=False, thickness=10.0):
     """
     Load OSM via C++ and return Open3D geometries.
-    Uses composite_bki_cpp.load_osm_geometries (config supplies origin, etc.).
+    Uses osm_bki_cpp.load_osm_geometries (config supplies origin, etc.).
     """
-    if composite_bki_cpp is None:
+    if osm_bki_cpp is None:
         raise ImportError(
-            "composite_bki_cpp not available. Build the C++ extension to use OSM loader.")
+            "osm_bki_cpp not available. Build the C++ extension to use OSM loader.")
     if not Path(osm_path).exists():
         raise FileNotFoundError(f"OSM file not found: {osm_path}")
     if not Path(config_path).exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    data = composite_bki_cpp.load_osm_geometries(osm_path, config_path, z_offset)
+    data = osm_bki_cpp.load_osm_geometries(osm_path, config_path, z_offset)
     geoms = []
     for d in data:
         pts = np.array(d["points"], dtype=np.float64)
@@ -292,10 +292,10 @@ def load_poses_csv(pose_csv_path: str) -> dict:
 
 def transform_points_to_world(points, pose, body_to_lidar, init_rel_pos=None):
     """Delegate to C++ transform_scan_to_world (pose_utils.hpp)."""
-    if composite_bki_cpp is None:
+    if osm_bki_cpp is None:
         raise ImportError(
-            "composite_bki_cpp not available. Build the C++ extension.")
-    return composite_bki_cpp.transform_scan_to_world(
+            "osm_bki_cpp not available. Build the C++ extension.")
+    return osm_bki_cpp.transform_scan_to_world(
         np.ascontiguousarray(points, dtype=np.float32),
         np.asarray(pose, dtype=np.float64),
         np.ascontiguousarray(body_to_lidar, dtype=np.float64),

@@ -16,9 +16,9 @@ import csv
 from pathlib import Path
 from datetime import datetime
 
-# Add parent directory to path to import composite_bki_cpp
+# Add parent directory to path to import osm_bki_cpp
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-import composite_bki_cpp
+import osm_bki_cpp
 
 from benchmark_utils import find_label_file
 
@@ -77,7 +77,7 @@ def add_noise(labels_raw, noise_percent, noise_pool):
 
 
 def calculate_metrics(pred_labels, gt_labels):
-    """Calculate accuracy and mIoU (matches composite_bki.py logic exactly)."""
+    """Calculate accuracy and mIoU (matches osm_bki logic exactly)."""
     intersection = {}
     union = {}
     correct = {}
@@ -160,7 +160,7 @@ def run_single_config(
     
     # Run refinement with specified kernel configuration
     # Using PyContinuousBKI directly
-    bki = composite_bki_cpp.PyContinuousBKI(
+    bki = osm_bki_cpp.PyContinuousBKI(
         osm_path=str(osm_path),
         config_path=str(config_path),
         resolution=1.0,

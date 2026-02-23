@@ -5,7 +5,7 @@ Benchmark Composite BKI performance across OSM randomization levels.
 This benchmark:
 1. Randomizes the OSM map at controlled levels (logic in this script)
 2. Runs Composite BKI refinement for each randomized map
-3. Evaluates against ground truth (using composite_bki.py metrics logic)
+3. Evaluates against ground truth (using osm_bki metrics logic)
 4. Outputs results to CSV
 """
 
@@ -21,7 +21,7 @@ from datetime import datetime
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-import composite_bki_cpp
+import osm_bki_cpp
 
 # Category mapping: load_osm_geometries returns by class (config osm_class_map order)
 _CLASS_TO_CATEGORY = {
@@ -69,7 +69,7 @@ def load_osm_from_xml(osm_path, config_path):
     Load OSM geometries from .osm XML file via C++ loader.
     Returns dict: category -> list of polygon coords [(x,y), ...].
     """
-    data = composite_bki_cpp.load_osm_geometries(str(osm_path), str(config_path), z_offset=0.0)
+    data = osm_bki_cpp.load_osm_geometries(str(osm_path), str(config_path), z_offset=0.0)
     result = {cat: [] for cat in ["buildings", "roads", "grasslands", "trees", "wood"]}
     for idx, geom in enumerate(data):
         cat = _CLASS_TO_CATEGORY.get(idx, "grasslands")
@@ -497,7 +497,7 @@ def check_files_exist(file_dict):
 
 def calculate_metrics(pred_labels, gt_labels):
     """
-    Calculate accuracy and mIoU (matches composite_bki.py::compute_metrics exactly).
+    Calculate accuracy and mIoU (matches osm_bki::compute_metrics exactly).
     """
     intersection = {}
     union = {}
@@ -587,7 +587,7 @@ def run_single_benchmark(
     metrics_before = calculate_metrics(labels, gt_labels)
 
     # Using PyContinuousBKI directly
-    bki = composite_bki_cpp.PyContinuousBKI(
+    bki = osm_bki_cpp.PyContinuousBKI(
         osm_path=str(osm_path),
         config_path=str(config_path),
         resolution=1,

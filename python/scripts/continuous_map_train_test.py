@@ -11,7 +11,7 @@ import os
 import sys
 import argparse
 import numpy as np
-import composite_bki_cpp
+import osm_bki_cpp
 from pathlib import Path
 
 from script_utils import (
@@ -179,7 +179,7 @@ def main():
         return 1
 
     def train_bki(use_semantic_kernel):
-        bki = composite_bki_cpp.PyContinuousBKI(
+        bki = osm_bki_cpp.PyContinuousBKI(
             osm_path=args.osm,
             config_path=args.config,
             resolution=args.resolution,
@@ -225,7 +225,7 @@ def main():
     # To disable spatial kernel, we need to modify train_bki or create a new instance
     # Let's modify train_bki to accept use_spatial_kernel
     def train_bki_custom(use_semantic_kernel, use_spatial_kernel):
-        bki = composite_bki_cpp.PyContinuousBKI(
+        bki = osm_bki_cpp.PyContinuousBKI(
             osm_path=args.osm,
             config_path=args.config,
             resolution=args.resolution,
