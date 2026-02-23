@@ -49,7 +49,7 @@ void parseArgs(int argc, char** argv,
                std::string& scan_dir, std::string& label_dir,
                std::string& output_dir, std::string& map_state,
                bool& no_viz,
-               float& osm_prior_strength, float& lambda_min, float& lambda_max) {
+               float& osm_prior_strength) {
     config_path = "configs/mcd_config.yaml";
     osm_path.clear();
     scan_dir.clear();
@@ -58,8 +58,6 @@ void parseArgs(int argc, char** argv,
     map_state.clear();
     no_viz = false;
     osm_prior_strength = 0.0f;
-    lambda_min = 0.8f;
-    lambda_max = 0.99f;
 
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
@@ -75,8 +73,6 @@ void parseArgs(int argc, char** argv,
         else if (std::strcmp(arg, "--map-state") == 0 && next()) map_state = argv[i];
         else if (std::strcmp(arg, "--no-viz") == 0) no_viz = true;
         else if (std::strcmp(arg, "--osm-prior-strength") == 0 && next()) osm_prior_strength = std::stof(argv[i]);
-        else if (std::strcmp(arg, "--lambda-min") == 0 && next()) lambda_min = std::stof(argv[i]);
-        else if (std::strcmp(arg, "--lambda-max") == 0 && next()) lambda_max = std::stof(argv[i]);
     }
 }
 
@@ -85,9 +81,9 @@ void parseArgs(int argc, char** argv,
 int main(int argc, char** argv) {
     std::string config_path, osm_path, scan_dir, label_dir, output_dir, map_state;
     bool no_viz;
-    float osm_prior_strength, lambda_min, lambda_max;
+    float osm_prior_strength;
     parseArgs(argc, argv, config_path, osm_path, scan_dir, label_dir,
-              output_dir, map_state, no_viz, osm_prior_strength, lambda_min, lambda_max);
+              output_dir, map_state, no_viz, osm_prior_strength);
 
     // If paths not given, derive from mcd_config.yaml (dataset_root_path, sequence, osm_file).
     if (osm_path.empty() || scan_dir.empty() || label_dir.empty()) {
@@ -107,7 +103,7 @@ int main(int argc, char** argv) {
 
     if (osm_path.empty() || scan_dir.empty() || label_dir.empty()) {
         std::cerr << "Usage: " << (argc ? argv[0] : "test_cbki")
-                  << " [--config <yaml>] [--osm <path>] [--scan-dir <dir>] [--label-dir <dir>] [--output-dir <dir>] [--map-state <file>] [--no-viz] [--osm-prior-strength <f>] [--lambda-min <f>] [--lambda-max <f>]\n"
+                  << " [--config <yaml>] [--osm <path>] [--scan-dir <dir>] [--label-dir <dir>] [--output-dir <dir>] [--map-state <file>] [--no-viz] [--osm-prior-strength <f>]\n"
                   << "Defaults: config=configs/mcd_config.yaml; osm/scan-dir/label-dir are read from that config (dataset_root_path, sequence, osm_file).\n";
         return 1;
     }
@@ -149,8 +145,7 @@ int main(int argc, char** argv) {
         1.0f,              // alpha0
         true,              // seed_osm_prior
         osm_prior_strength,
-        true,              // osm_fallback_in_infer
-        lambda_min, lambda_max);
+        true);             // osm_fallback_in_infer
 
     std::cout << "BKI initialized with " << bki.size() << " voxels" << std::endl;
     
