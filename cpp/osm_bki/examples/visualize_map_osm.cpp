@@ -202,9 +202,14 @@ int main(int argc, char** argv) {
         std::cerr << "OSM config error: " << error_msg << std::endl;
         return 1;
     }
-    // Use OSM path and origin from MCD config when present (osm_file is relative to dataset_root_path).
+    // Resolve OSM path: relative to dataset_root_path (legacy) or config file directory
     if (!map_config.osm_file.empty()) {
-        osm_config.osm_file = (std::filesystem::path(map_config.dataset_root_path) / map_config.osm_file).string();
+        if (!map_config.dataset_root_path.empty()) {
+            osm_config.osm_file = (std::filesystem::path(map_config.dataset_root_path) / map_config.osm_file).string();
+        } else {
+            const auto config_dir = std::filesystem::path(mcd_config_path).parent_path();
+            osm_config.osm_file = (config_dir / map_config.osm_file).lexically_normal().string();
+        }
     }
     if (map_config.use_osm_origin_from_mcd) {
         osm_config.use_origin_override = true;

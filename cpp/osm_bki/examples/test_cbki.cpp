@@ -85,26 +85,31 @@ int main(int argc, char** argv) {
     parseArgs(argc, argv, config_path, osm_path, scan_dir, label_dir,
               output_dir, map_state, no_viz, osm_prior_strength);
 
-    // If paths not given, derive from mcd_config.yaml (dataset_root_path, sequence, osm_file).
+    // If paths not given, try loading from config (direct paths or dataset_root_path+sequence).
     if (osm_path.empty() || scan_dir.empty() || label_dir.empty()) {
         continuous_bki::DatasetConfig dataset_config;
         std::string err;
         if (!continuous_bki::loadDatasetConfig(config_path, dataset_config, err)) {
             std::cerr << "Failed to load dataset config from " << config_path << ": " << err << std::endl;
-            std::cerr << "Paths can be set in config or overridden with --osm, --scan-dir, --label-dir.\n";
+            std::cerr << "Paths can be set in config (lidar_dir, label_dir, osm_file) or via --osm, --scan-dir, --label-dir.\n";
             return 1;
         }
         if (scan_dir.empty()) scan_dir = dataset_config.lidar_dir;
         if (label_dir.empty()) label_dir = dataset_config.label_dir;
         if (osm_path.empty() && !dataset_config.osm_file.empty()) {
-            osm_path = (fs::path(dataset_config.dataset_root_path) / dataset_config.osm_file).string();
+            if (!dataset_config.dataset_root_path.empty()) {
+                osm_path = (fs::path(dataset_config.dataset_root_path) / dataset_config.osm_file).string();
+            } else {
+                const auto config_dir = fs::path(config_path).parent_path();
+                osm_path = (config_dir / dataset_config.osm_file).lexically_normal().string();
+            }
         }
     }
 
     if (osm_path.empty() || scan_dir.empty() || label_dir.empty()) {
         std::cerr << "Usage: " << (argc ? argv[0] : "test_cbki")
                   << " [--config <yaml>] [--osm <path>] [--scan-dir <dir>] [--label-dir <dir>] [--output-dir <dir>] [--map-state <file>] [--no-viz] [--osm-prior-strength <f>]\n"
-                  << "Defaults: config=configs/mcd_config.yaml; osm/scan-dir/label-dir are read from that config (dataset_root_path, sequence, osm_file).\n";
+                  << "Paths from config (lidar_dir, label_dir, osm_file) or via CLI.\n";
         return 1;
     }
 

@@ -6,13 +6,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Paths relative to benchmarks/ (each script resolves from its own directory)
-data_dir="../../example_data/kth_day_06"
+# Paths relative to python/ (run_benchmarks.sh cds to SCRIPT_DIR=python)
+# Layout: example_data/mcd/{kth_day_06/, kth.osm, hhs_calib.yaml}
+mcd_root="../../example_data/mcd"
+data_dir="$mcd_root/kth_day_06"
 scan_dir="$data_dir/lidar_bin/data"
-pred_labels="$data_dir/labels_predicted/labels_predicted"
+pred_labels="$data_dir/labels_predicted"
 gt_labels="$data_dir/gt_labels"
 pose_path="$data_dir/pose_inW.csv"
-osm_path="../../example_data/kth.osm"
+osm_path="$mcd_root/kth.osm"
 config_path="../../configs/mcd_config.yaml"
 
 run() {

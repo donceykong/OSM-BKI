@@ -45,8 +45,8 @@ python/
 
 Configs and example data live at the **repo root**:
 - `configs/mcd_config.yaml` – MCD dataset config
-- `example_data/kth_day_06/` – Example LiDAR, labels, poses
-- `example_data/kth.osm` – OSM map
+- `example_data/mcd/kth_day_06/` – Example LiDAR, labels, poses
+- `example_data/mcd/kth.osm` – OSM map
 
 ---
 
@@ -88,7 +88,7 @@ From the **repo root**:
 ./python/run_osmbki.sh
 ```
 
-Trains a continuous BKI map on `example_data/kth_day_06` and evaluates on held-out scans. Output: `output.bki`.
+Trains a continuous BKI map on `example_data/mcd/kth_day_06` and evaluates on held-out scans. Output: `output.bki`.
 
 ### Run all benchmarks
 
@@ -108,21 +108,27 @@ Run from the **repo root** so paths resolve correctly:
 # Continuous map training (same as run_osmbki.sh, but with custom args)
 python python/scripts/continuous_map_train_test.py \
   --config configs/mcd_config.yaml \
-  --osm example_data/kth.osm \
-  --calib example_data/hhs_calib.yaml \
-  --scan-dir example_data/kth_day_06/lidar_bin/data \
-  --label-dir example_data/kth_day_06/labels_predicted \
-  --gt-dir example_data/kth_day_06/gt_labels \
-  --pose example_data/kth_day_06/pose_inW.csv \
+  --osm example_data/mcd/kth.osm \
+  --calib example_data/mcd/hhs_calib.yaml \
+  --scan-dir example_data/mcd/kth_day_06/lidar_bin/data \
+  --label-dir example_data/mcd/kth_day_06/labels_predicted \
+  --gt-dir example_data/mcd/kth_day_06/gt_labels \
+  --pose example_data/mcd/kth_day_06/pose_inW.csv \
   --init_rel_pos 64.393 66.483 38.514 \
   --osm_origin_lat 59.348268650 --osm_origin_lon 18.073204280
 
-# Visualize map + OSM overlay (Open3D)
-python python/scripts/visualize_osm_xml.py --config configs/mcd_config.yaml
+# Visualize map + OSM overlay (Open3D; all paths required)
+python python/scripts/visualize_osm_xml.py \
+  --config configs/mcd_config.yaml \
+  --osm example_data/mcd/kth.osm \
+  --scan_dir example_data/mcd/kth_day_06/lidar_bin/data \
+  --label_dir example_data/mcd/kth_day_06/gt_labels \
+  --pose example_data/mcd/kth_day_06/pose_inW.csv \
+  --calib example_data/mcd/hhs_calib.yaml
 
 # BKI tools: convert .bki to point cloud, or visualize
 python python/scripts/bki_tools.py convert --bki output.bki --config configs/mcd_config.yaml
-python python/scripts/bki_tools.py visualize --bki output.bki --config configs/mcd_config.yaml
+python python/scripts/bki_tools.py visualize --bki output.bki --config configs/mcd_config.yaml --osm example_data/mcd/kth.osm
 ```
 
 ### Individual benchmarks
@@ -131,7 +137,7 @@ From the **python** directory:
 
 ```bash
 cd python
-python benchmarks/throughput_benchmark.py --scan-dir ../../example_data/kth_day_06/lidar_bin/data --label-dir ../../example_data/kth_day_06/labels_predicted/labels_predicted --osm ../../example_data/kth.osm --config ../../configs/mcd_config.yaml
+python benchmarks/throughput_benchmark.py --scan-dir ../../example_data/mcd/kth_day_06/lidar_bin/data --label-dir ../../example_data/mcd/kth_day_06/labels_predicted --osm ../../example_data/mcd/kth.osm --config ../../configs/mcd_config.yaml
 ```
 
 Or use `run_benchmarks.sh` to run all with correct paths.

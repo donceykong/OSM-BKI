@@ -121,14 +121,13 @@ The example executable is produced at `build/visualize_map_osm`.
 
 Key fields used by the example:
 
-- **dataset_root_path** – Root of the dataset.
-- **sequence** – Sequence name (e.g. `kth_night_05`).
-- **osm_file** – OSM file path *relative to* `dataset_root_path` (e.g. `kth.osm`).
+**Path resolution (choose one):**
+- **Direct paths** (relative to config file): `lidar_dir`, `label_dir`, `pose_path`, `calibration_path`, `osm_file`.
+å
+**Other fields:**
 - **init_latlon_day_06** – `[lat, lon]` used as OSM local coordinate origin.
 - **init_rel_pos_day_06** – `[x, y, z]` world origin for aligning poses (subtracted from pose positions).
 - **skip_frames** – Number of frames to skip between scans used for the map.
-
-Lidar, labels, and poses are resolved under `dataset_root_path/sequence/` (e.g. `lidar_bin/data`, `gt_labels`, `pose_inW.csv`). Calibration is read from `dataset_root_path/hhs_calib.yaml`.
 
 ### OSM config (osm_config.yaml)
 

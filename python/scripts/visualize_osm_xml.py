@@ -9,21 +9,14 @@ overlays OSM polylines, using the same transform chain as the C++ tool:
 
 where  body_to_world_shifted = poseToMatrix(pose) – init_rel_pos.
 
-Usage (config-file driven, mirrors C++ positional args):
-    python visualize_osm_xml.py --config configs/mcd_config.yaml
-
-Usage (explicit paths, no config required):
+Usage (all paths required; --config optional for init_rel_pos, colors, osm_origin):
     python visualize_osm_xml.py \\
-        --osm       kth.osm \\
-        --scan_dir  kth_day_06/lidar_bin/data \\
-        --label_dir kth_day_06/gt_labels \\
-        --pose      kth_day_06/pose_inW.csv \\
-        --calib     hhs_calib.yaml \\
-        --osm_origin_lat 59.348268650 \\
-        --osm_origin_lon 18.073204280 \\
-        --init_rel_pos 64.393 66.483 38.514 \\
-        --skip_frames 10 \\
-        --max_scans 100
+        --config configs/mcd_config.yaml \\
+        --osm example_data/mcd/kth.osm \\
+        --scan_dir example_data/mcd/kth_day_06/lidar_bin/data \\
+        --label_dir example_data/mcd/kth_day_06/gt_labels \\
+        --pose example_data/mcd/kth_day_06/pose_inW.csv \\
+        --calib example_data/mcd/hhs_calib.yaml
 """
 
 import argparse
@@ -141,28 +134,25 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__)
 
-    # ── Config file (mirrors C++ first two positional args) ────────────────
+    # ── Config file (for init_rel_pos, colors, osm_origin; paths come from CLI) ─
     parser.add_argument("--config", type=str, default=None,
-                        help="Path to mcd_config.yaml (resolves all paths "
-                             "automatically, matching C++ loadDatasetConfig).")
+                        help="Path to mcd_config.yaml (init_rel_pos, colors, osm_origin).")
     parser.add_argument("--skip_frames", type=int, default=None,
                         help="Override skip_frames from config "
                              "(C++ third positional arg; default: use config or 0).")
     parser.add_argument("--max_scans", type=int, default=None,
                         help="Maximum number of scans to add to the map (default: no limit).")
 
-    # ── Explicit path overrides ────────────────────────────────────────────
-    parser.add_argument("--osm", type=str, default=None,
+    # ── Required paths ────────────────────────────────────────────────────
+    parser.add_argument("--osm", type=str, required=True,
                         help="Path to .osm file.")
-    parser.add_argument("--scan_dir", type=str, default=None,
-                        help="Directory containing lidar .bin files "
-                             "(dataset_root/sequence/lidar_bin/data).")
-    parser.add_argument("--label_dir", type=str, default=None,
-                        help="Directory containing label .bin files "
-                             "(dataset_root/sequence/gt_labels).")
-    parser.add_argument("--pose", type=str, default=None,
+    parser.add_argument("--scan_dir", type=str, required=True,
+                        help="Directory containing lidar .bin files.")
+    parser.add_argument("--label_dir", type=str, required=True,
+                        help="Directory containing label .bin files.")
+    parser.add_argument("--pose", type=str, required=True,
                         help="Path to pose_inW.csv.")
-    parser.add_argument("--calib", type=str, default=None,
+    parser.add_argument("--calib", type=str, required=True,
                         help="Path to hhs_calib.yaml (body→LiDAR calibration).")
     parser.add_argument("--init_rel_pos", type=float, nargs=3,
                         metavar=('X', 'Y', 'Z'), default=None,
@@ -190,12 +180,12 @@ def main():
 
     # ── Resolve configuration ──────────────────────────────────────────────
     cfg: dict = {
+        'lidar_dir':        args.scan_dir,
+        'label_dir':        args.label_dir,
+        'pose_path':        args.pose,
+        'calibration_path': args.calib,
+        'osm_file':         args.osm,
         'skip_frames':      0,
-        'lidar_dir':        None,
-        'label_dir':        None,
-        'pose_path':        None,
-        'calibration_path': None,
-        'osm_file':         '',
         'use_osm_origin':   False,
         'osm_origin_lat':   0.0,
         'osm_origin_lon':   0.0,
@@ -206,18 +196,14 @@ def main():
     config_reader = None
     if args.config:
         config_reader = ConfigReader(args.config)
-        cfg.update(config_reader.get_dataset_config())
+        cfg.update(config_reader.get_non_path_config())
         print(f"Loaded config from {args.config}")
 
-    # CLI args always override config file values
-    if args.skip_frames  is not None:  cfg['skip_frames']      = args.skip_frames
-    if args.scan_dir:                  cfg['lidar_dir']         = args.scan_dir
-    if args.label_dir:                 cfg['label_dir']         = args.label_dir
-    if args.pose:                      cfg['pose_path']         = args.pose
-    if args.calib:                     cfg['calibration_path']  = args.calib
-    if args.osm:                       cfg['osm_file']          = args.osm
+    # CLI overrides for non-path config
+    if args.skip_frames is not None:
+        cfg['skip_frames'] = args.skip_frames
     if args.init_rel_pos is not None:
-        cfg['init_rel_pos']     = np.array(args.init_rel_pos)
+        cfg['init_rel_pos'] = np.array(args.init_rel_pos)
         cfg['use_init_rel_pos'] = True
     if args.osm_origin_lat is not None and args.osm_origin_lon is not None:
         cfg['osm_origin_lat'] = args.osm_origin_lat
@@ -225,15 +211,6 @@ def main():
         cfg['use_osm_origin'] = True
 
     step = cfg['skip_frames'] + 1
-
-    # ── Validate required inputs ───────────────────────────────────────────
-    missing = [k for k in ('lidar_dir', 'label_dir', 'pose_path',
-                           'calibration_path', 'osm_file')
-               if not cfg.get(k)]
-    if missing:
-        parser.error(
-            f"Missing required inputs: {missing}. "
-            "Provide --config or the individual path flags.")
 
     # ── Load poses ─────────────────────────────────────────────────────────
     poses_by_id = load_poses_csv(cfg['pose_path'])

@@ -97,53 +97,12 @@ class ConfigReader:
 
     @property
     def osm_path(self):
-        """Resolved path to OSM file, or None if not configured/missing."""
+        """Resolved path to OSM file, or None if not configured/missing.
+        Resolves osm_file relative to the config file's directory."""
         if "osm_file" not in self._raw:
             return None
-        root = self._raw.get("dataset_root_path")
-        osm_file = self._raw["osm_file"]
-        if root:
-            path = Path(root) / osm_file
-        else:
-            path = self._config_dir / osm_file
-        path = path.resolve()
+        path = (self._config_dir / self._raw["osm_file"]).resolve()
         return str(path) if path.exists() else None
-
-    # --- Dataset paths ---
-
-    @property
-    def dataset_root_path(self):
-        return self._raw.get("dataset_root_path", "")
-
-    @property
-    def sequence(self):
-        return self._raw.get("sequence", "")
-
-    @property
-    def lidar_dir(self):
-        base = os.path.join(self.dataset_root_path, self.sequence)
-        return os.path.join(base, "lidar_bin", "data")
-
-    @property
-    def label_dir(self):
-        base = os.path.join(self.dataset_root_path, self.sequence)
-        return os.path.join(base, "gt_labels")
-
-    @property
-    def pose_path(self):
-        base = os.path.join(self.dataset_root_path, self.sequence)
-        return os.path.join(base, "pose_inW.csv")
-
-    @property
-    def calibration_path(self):
-        return os.path.join(self.dataset_root_path, "hhs_calib.yaml")
-
-    @property
-    def osm_file(self):
-        """Resolved path to OSM file (from dataset root)."""
-        if "osm_file" not in self._raw:
-            return ""
-        return os.path.join(self.dataset_root_path, self._raw["osm_file"])
 
     @property
     def skip_frames(self):
@@ -169,18 +128,14 @@ class ConfigReader:
             "osm_world_offset_y": self.osm_world_offset_y,
         }
 
-    def get_dataset_config(self, overrides=None):
+    def get_non_path_config(self, overrides=None):
         """
-        Dict for visualize_osm_xml: all dataset paths, init_rel_pos, colors.
+        Dict of config values that are not file paths (for scripts that require paths via CLI).
+        Returns: skip_frames, init_rel_pos, osm_origin_*, use_* flags.
         overrides: optional dict to override (e.g. from CLI).
         """
         cfg = {
             "skip_frames": self.skip_frames,
-            "lidar_dir": self.lidar_dir,
-            "label_dir": self.label_dir,
-            "pose_path": self.pose_path,
-            "calibration_path": self.calibration_path,
-            "osm_file": self.osm_file,
             "use_osm_origin": self.osm_origin_lat is not None,
             "osm_origin_lat": self.osm_origin_lat or 0.0,
             "osm_origin_lon": self.osm_origin_lon or 0.0,

@@ -9,13 +9,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 # Example data paths (relative to repo root)
-EXAMPLE="example_data"
-DATA="$EXAMPLE/kth_day_06"
+# Layout: example_data/mcd/{kth_day_06/, kth.osm, hhs_calib.yaml}
+MCD="example_data/mcd"
+DATA="$MCD/kth_day_06"
 SCAN_DIR="$DATA/lidar_bin/data"
 LABEL_DIR="$DATA/labels_predicted"
 GT_DIR="$DATA/gt_labels"
-OSM="$EXAMPLE/kth.osm"
-CALIB="$EXAMPLE/hhs_calib.yaml"
+OSM="$MCD/kth.osm"
+CALIB="$MCD/hhs_calib.yaml"
 POSE="$DATA/pose_inW.csv"
 CONFIG="configs/mcd_config.yaml"
 
