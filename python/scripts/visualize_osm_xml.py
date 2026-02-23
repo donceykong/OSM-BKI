@@ -27,34 +27,17 @@ Usage (explicit paths, no config required):
 """
 
 import argparse
-import math
 from typing import Optional
 import os
 import sys
-import xml.etree.ElementTree as ET
 import yaml
-from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 import open3d as o3d
 import composite_bki_cpp
-from composite_bki_cpp import latlon_to_mercator
 
-
-# ─── OSM colour scheme ────────────────────────────────────────────────────────
-# Float [0,1] values; RGB byte values match colorForOSM() in visualize_map_osm.cpp.
-OSM_COLORS = {
-    'building': [ 30/255, 180/255,  30/255],
-    'highway':  [240/255, 120/255,  20/255],
-    'sidewalk': [220/255, 220/255, 220/255],
-    'parking':  [245/255, 210/255,  80/255],
-    'barrier':  [170/255, 120/255,  70/255],
-    'stairs':   [150/255, 100/255,  60/255],
-    'landuse':  [ 60/255, 170/255,  80/255],
-    'natural':  [ 20/255, 130/255,  20/255],
-    'default':  [140/255, 140/255, 140/255],
-}
+from osm_loader import OSMLoader, create_thick_lines
 
 # Semantic label colours (from mcd_config.yaml `colors:` block, normalised to [0,1])
 MCD_LABEL_COLORS = {
@@ -105,226 +88,6 @@ def _color_from_label(label: int) -> list:
     return [((h >> 16) & 0xFF) / 255.0,
             ((h >>  8) & 0xFF) / 255.0,
             ( h        & 0xFF) / 255.0]
-
-
-# ─── Geometry helpers ─────────────────────────────────────────────────────────
-
-def create_thick_lines(points, lines, color, radius: float = 5.0):
-    """Cylinder-mesh thick lines (slow on large maps; only used with --thick)."""
-    meshes = []
-    pts = np.array(points)
-    for line in lines:
-        start  = pts[line[0]]
-        end    = pts[line[1]]
-        vec    = end - start
-        length = np.linalg.norm(vec)
-        if length < 0.01:
-            continue
-        cyl = o3d.geometry.TriangleMesh.create_cylinder(
-            radius=radius, height=length, resolution=8)
-        cyl.paint_uniform_color(color)
-        z_axis    = np.array([0.0, 0.0, 1.0])
-        direction = vec / length
-        rot_axis  = np.cross(z_axis, direction)
-        rot_angle = np.arccos(np.clip(np.dot(z_axis, direction), -1.0, 1.0))
-        if np.linalg.norm(rot_axis) > 0.001:
-            cyl.rotate(
-                o3d.geometry.get_rotation_matrix_from_axis_angle(
-                    rot_axis / np.linalg.norm(rot_axis) * rot_angle),
-                center=[0, 0, 0])
-        elif np.dot(z_axis, direction) < 0:
-            cyl.rotate(
-                o3d.geometry.get_rotation_matrix_from_axis_angle(
-                    np.array([1.0, 0.0, 0.0]) * math.pi),
-                center=[0, 0, 0])
-        cyl.translate((start + end) / 2)
-        meshes.append(cyl)
-    if not meshes:
-        return None
-    combined = meshes[0]
-    for m in meshes[1:]:
-        combined += m
-    return combined
-
-
-# ─── OSM loader ───────────────────────────────────────────────────────────────
-
-class OSMLoader:
-    """
-    Parses an OSM XML file and projects nodes to local ENU metres using the
-    scaled Mercator projection matching the C++ MercatorProjection.
-
-    Also imported by visualize_osm.py.
-    """
-
-    def __init__(self, xml_file: str,
-                 origin_lat_override=None,
-                 origin_lon_override=None,
-                 world_offset_x: float = 0.0,
-                 world_offset_y: float = 0.0):
-        """
-        Args:
-            xml_file:            Path to .osm file.
-            origin_lat_override: Overrides the auto-derived origin latitude.
-                                 Use init_latlon_day_06[0] from mcd_config.yaml
-                                 (KTH: 59.348268650) for LiDAR-frame alignment.
-            origin_lon_override: Corresponding longitude (KTH: 18.073204280).
-            world_offset_x:      World-frame X of the GPS reference point
-                                 (osm_world_offset_x in mcd_config.yaml; default 0.0).
-            world_offset_y:      World-frame Y of the GPS reference point (default 0.0).
-        """
-        print(f"Loading {xml_file}...")
-        self.tree = ET.parse(xml_file)
-        self.root = self.tree.getroot()
-        self.nodes: dict  = {}   # id → (x, y) metres
-        self.ways:  list  = []   # [{'nodes': [...], 'tags': {...}}]
-        self.bounds = {'minlat': 0.0, 'minlon': 0.0, 'maxlat': 0.0, 'maxlon': 0.0}
-        self.origin_lat = 0.0
-        self.origin_lon = 0.0
-        self.world_offset_x = world_offset_x
-        self.world_offset_y = world_offset_y
-        self._origin_lat_override = origin_lat_override
-        self._origin_lon_override = origin_lon_override
-        self._parse()
-
-    def _parse(self):
-        # 1. Determine projection origin
-        bounds = self.root.find('bounds')
-        if bounds is not None:
-            self.bounds['minlat'] = float(bounds.get('minlat'))
-            self.bounds['minlon'] = float(bounds.get('minlon'))
-            self.bounds['maxlat'] = float(bounds.get('maxlat'))
-            self.bounds['maxlon'] = float(bounds.get('maxlon'))
-            self.origin_lat = (self.bounds['minlat'] + self.bounds['maxlat']) / 2.0
-            self.origin_lon = (self.bounds['minlon'] + self.bounds['maxlon']) / 2.0
-        else:
-            # No <bounds> element (e.g. Overpass API output): derive from all nodes.
-            all_nodes = self.root.findall('node')
-            if all_nodes:
-                lats = [float(n.get('lat')) for n in all_nodes]
-                lons = [float(n.get('lon')) for n in all_nodes]
-                self.bounds = {
-                    'minlat': min(lats), 'maxlat': max(lats),
-                    'minlon': min(lons), 'maxlon': max(lons),
-                }
-                self.origin_lat = (self.bounds['minlat'] + self.bounds['maxlat']) / 2.0
-                self.origin_lon = (self.bounds['minlon'] + self.bounds['maxlon']) / 2.0
-                print(f"No <bounds> element; computed origin from {len(all_nodes)} nodes.")
-
-        # Explicit override always wins (required for correct LiDAR-frame alignment).
-        if (self._origin_lat_override is not None and
-                self._origin_lon_override is not None):
-            self.origin_lat = self._origin_lat_override
-            self.origin_lon = self._origin_lon_override
-            print(f"Using explicit OSM origin: "
-                  f"({self.origin_lat:.9f}, {self.origin_lon:.9f})")
-
-        print(f"OSM origin: {self.origin_lat:.6f}, {self.origin_lon:.6f}")
-
-        # 2. Project nodes with scaled Mercator (matches C++ MercatorProjection)
-        print("Projecting nodes...")
-        for node in self.root.findall('node'):
-            nid = node.get('id')
-            lat = float(node.get('lat'))
-            lon = float(node.get('lon'))
-            x, y = latlon_to_mercator(lat, lon,
-                                      self.origin_lat, self.origin_lon,
-                                      self.world_offset_x, self.world_offset_y)
-            self.nodes[nid] = (x, y)
-        print(f"Processed {len(self.nodes)} nodes.")
-
-        # 3. Parse ways
-        for way in self.root.findall('way'):
-            node_ids = [nd.get('ref') for nd in way.findall('nd')]
-            tags     = {tag.get('k'): tag.get('v') for tag in way.findall('tag')}
-            if node_ids:
-                self.ways.append({'nodes': node_ids, 'tags': tags})
-        print(f"Processed {len(self.ways)} ways.")
-
-    def _batch_ways(self, z_offset: float):
-        """Categorise ways and bucket them by category for batch rendering."""
-        batches = defaultdict(
-            lambda: {'points': [], 'lines': [], 'color': OSM_COLORS['default']})
-
-        for way in self.ways:
-            tags     = way['tags']
-            node_ids = way['nodes']
-
-            # Map OSM tags → C++ Category equivalents
-            if 'building' in tags:
-                cat, color = 'building', OSM_COLORS['building']
-            elif 'highway' in tags:
-                val = tags['highway']
-                if val in ('footway', 'path', 'steps', 'pedestrian', 'cycleway'):
-                    cat, color = 'sidewalk', OSM_COLORS['sidewalk']
-                else:
-                    cat, color = 'highway', OSM_COLORS['highway']
-            elif 'amenity' in tags and tags['amenity'] == 'parking':
-                cat, color = 'parking', OSM_COLORS['parking']
-            elif 'barrier' in tags:
-                val = tags['barrier']
-                cat  = 'stairs' if val == 'stairs' else 'barrier'
-                color = OSM_COLORS[cat]
-            elif 'landuse' in tags:
-                cat, color = 'landuse', OSM_COLORS['landuse']
-            elif 'natural' in tags:
-                cat, color = 'natural', OSM_COLORS['natural']
-            else:
-                cat, color = 'default', OSM_COLORS['default']
-
-            pts = [[self.nodes[nid][0], self.nodes[nid][1], z_offset]
-                   for nid in node_ids if nid in self.nodes]
-            if len(pts) < 2:
-                continue
-
-            batch = batches[cat]
-            batch['color'] = color
-            start = len(batch['points'])
-            batch['points'].extend(pts)
-            n = len(pts)
-            batch['lines'].extend([[start + i, start + i + 1] for i in range(n - 1)])
-            # Close polygon for area features
-            if cat in ('building', 'landuse', 'parking', 'natural') and n > 2:
-                batch['lines'].append([start + n - 1, start])
-
-        return batches
-
-    def get_geometries(self, z_offset: float = 0.05,
-                       thickness: float = 10.0,
-                       use_thick: bool = False):
-        """
-        Return Open3D geometry objects for all ways.
-
-        z_offset defaults to 0.05 – matching the C++ which draws OSM segments
-        at z=0.05f so they sit just above the ground point cloud.
-
-        use_thick=True renders thick cylinder meshes (slow on large maps).
-        """
-        batches    = self._batch_ways(z_offset)
-        total_segs = sum(len(d['lines']) for d in batches.values())
-        mode       = "thick-line meshes" if use_thick else "LineSets"
-        print(f"Constructing {mode} for {total_segs} OSM segments...")
-
-        geoms = []
-        for _cat, data in batches.items():
-            if not data['points']:
-                continue
-            if use_thick:
-                mesh = create_thick_lines(data['points'], data['lines'],
-                                          data['color'], radius=thickness / 2.0)
-                if mesh:
-                    geoms.append(mesh)
-            else:
-                pts = np.array(data['points'])
-                ls  = o3d.geometry.LineSet()
-                ls.points = o3d.utility.Vector3dVector(pts)
-                ls.lines  = o3d.utility.Vector2iVector(data['lines'])
-                ls.colors = o3d.utility.Vector3dVector(
-                    [data['color']] * len(data['lines']))
-                geoms.append(ls)
-
-        print(f"Created {len(geoms)} {mode}.")
-        return geoms
 
 
 # ─── Dataset / calibration loading ───────────────────────────────────────────
@@ -667,23 +430,22 @@ def main():
         sys.exit("No map points accumulated.")
     print(f"Map cloud: {len(map_cloud.points):,} points")
 
-    # ── Load OSM ───────────────────────────────────────────────────────────
-    origin_lat = cfg['osm_origin_lat'] if cfg['use_osm_origin'] else None
-    origin_lon = cfg['osm_origin_lon'] if cfg['use_osm_origin'] else None
-    loader = OSMLoader(cfg['osm_file'],
-                       origin_lat_override=origin_lat,
-                       origin_lon_override=origin_lon,
-                       world_offset_x=args.osm_world_offset_x,
-                       world_offset_y=args.osm_world_offset_y)
-    osm_geoms = loader.get_geometries(
-        z_offset=args.z_offset, use_thick=args.thick, thickness=args.thickness)
+    # ── Load OSM (uses C++ loader; requires --config) ──────────────────────
+    if args.config:
+        loader = OSMLoader(cfg['osm_file'], args.config)
+        osm_geoms = loader.get_geometries(
+            z_offset=args.z_offset, use_thick=args.thick, thickness=args.thickness)
+    else:
+        print("Warning: OSM overlay requires --config; skipping OSM.")
+        osm_geoms = []
 
     # ── Summary (mirrors C++ stdout) ───────────────────────────────────────
+    n_osm = sum(len(g.lines) for g in osm_geoms if hasattr(g, 'lines'))
     print(f"\nMap points={len(map_cloud.points):,}, "
           f"skip_frames={cfg['skip_frames']}, "
           f"initial_position_xyz=[{init_rel_pos[0]:.3f}, "
           f"{init_rel_pos[1]:.3f}, {init_rel_pos[2]:.3f}], "
-          f"OSM polylines={len(loader.ways)}")
+          f"OSM segments={n_osm}")
 
     # ── Visualise (matches PCLVisualizer setup in visualize_map_osm.cpp) ──
     print("\nLaunching visualisation…")
