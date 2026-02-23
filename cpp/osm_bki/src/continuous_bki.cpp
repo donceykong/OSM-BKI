@@ -3,6 +3,7 @@
 #include "osm_xml_parser.hpp"
 #include <fstream>
 #include <limits>
+#include <climits>
 #include <cstring>
 #include <numeric>
 #include <algorithm>
@@ -127,6 +128,9 @@ void ContinuousBKI::OSMPriorRaster::build(const ContinuousBKI& bki, float res) {
 
     data.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(K_prior));
 
+    #ifdef _OPENMP
+    #pragma omp parallel for schedule(dynamic, 8)
+    #endif
     for (int iy = 0; iy < height; iy++) {
         float y = min_y + (iy + 0.5f) * cell_size;
         for (int ix = 0; ix < width; ix++) {
@@ -271,6 +275,20 @@ ContinuousBKI::ContinuousBKI(const Config& config,
     label_to_matrix_flat_.assign(static_cast<size_t>(max_raw_label_ + 1), -1);
     for (const auto& kv : config_.label_to_matrix_idx) {
         label_to_matrix_flat_[static_cast<size_t>(kv.first)] = kv.second;
+    }
+
+    inv_l_scale_sq_ = 1.0f / (l_scale_ * l_scale_);
+    spatial_kernel_lut_.resize(SPATIAL_KERNEL_LUT_SIZE + 1);
+    for (int i = 0; i <= SPATIAL_KERNEL_LUT_SIZE; i++) {
+        float t = static_cast<float>(i) / static_cast<float>(SPATIAL_KERNEL_LUT_SIZE);
+        float xi = std::sqrt(t);
+        if (xi < 1.0f) {
+            float term1 = (1.0f / 3.0f) * (2.0f + std::cos(2.0f * static_cast<float>(M_PI) * xi)) * (1.0f - xi);
+            float term2 = (1.0f / (2.0f * static_cast<float>(M_PI))) * std::sin(2.0f * static_cast<float>(M_PI) * xi);
+            spatial_kernel_lut_[i] = sigma_0_ * (term1 + term2);
+        } else {
+            spatial_kernel_lut_[i] = 0.0f;
+        }
     }
 
     auto t0_raster = std::chrono::high_resolution_clock::now();
@@ -436,15 +454,13 @@ void ContinuousBKI::computePredPriorFromOSM(float x, float y,
 float ContinuousBKI::computeSpatialKernel(float dist_sq) const {
     if (!use_spatial_kernel_) return 1.0f;
 
-    float dist = std::sqrt(dist_sq);
-    float xi = dist / l_scale_;
+    float t = dist_sq * inv_l_scale_sq_;
+    if (t >= 1.0f) return 0.0f;
 
-    if (xi < 1.0f) {
-        float term1 = (1.0f/3.0f) * (2.0f + std::cos(2.0f * static_cast<float>(M_PI) * xi)) * (1.0f - xi);
-        float term2 = (1.0f/(2.0f * static_cast<float>(M_PI))) * std::sin(2.0f * static_cast<float>(M_PI) * xi);
-        return sigma_0_ * (term1 + term2);
-    }
-    return 0.0f;
+    float fidx = t * static_cast<float>(SPATIAL_KERNEL_LUT_SIZE);
+    int idx = static_cast<int>(fidx);
+    float frac = fidx - static_cast<float>(idx);
+    return spatial_kernel_lut_[idx] + frac * (spatial_kernel_lut_[idx + 1] - spatial_kernel_lut_[idx]);
 }
 
 float ContinuousBKI::computeDistanceToClass(float x, float y, int class_idx) const {
@@ -601,6 +617,18 @@ void ContinuousBKI::update_impl(const std::vector<ValueType>& values,
     int radius = static_cast<int>(std::ceil(l_scale_ / resolution_));
     float l_scale_sq = l_scale_ * l_scale_;
 
+    // Precompute spherical neighborhood offsets (avoids per-point sqrt in loop bounds)
+    struct VoxelOffset { int dx, dy, dz; };
+    std::vector<VoxelOffset> neighbor_offsets;
+    {
+        int r2 = radius * radius;
+        for (int dx = -radius; dx <= radius; dx++)
+            for (int dy = -radius; dy <= radius; dy++)
+                for (int dz = -radius; dz <= radius; dz++)
+                    if (dx * dx + dy * dy + dz * dz <= r2)
+                        neighbor_offsets.push_back({dx, dy, dz});
+    }
+
     // Shard assignment
     std::vector<std::vector<size_t>> shard_points(static_cast<size_t>(num_shards));
     for (size_t i = 0; i < n; i++) {
@@ -662,38 +690,37 @@ void ContinuousBKI::update_impl(const std::vector<ValueType>& values,
                 prob_ptr = &values[i];
             }
 
-            for (int dx = -radius; dx <= radius; dx++) {
-                int dy_limit = static_cast<int>(std::sqrt(std::max(0.0f,
-                    static_cast<float>(radius * radius - dx * dx))));
-                for (int dy = -dy_limit; dy <= dy_limit; dy++) {
-                    int dz_limit = static_cast<int>(std::sqrt(std::max(0.0f,
-                        static_cast<float>(radius * radius - dx * dx - dy * dy))));
-                    for (int dz = -dz_limit; dz <= dz_limit; dz++) {
-                        VoxelKey vk = {vk_p.x + dx, vk_p.y + dy, vk_p.z + dz};
-                        BlockKey bk = voxelToBlockKey(vk);
-                        if (getShardIndex(bk) != s) continue;
+            BlockKey cached_bk = {INT_MIN, INT_MIN, INT_MIN};
+            Block* cached_blk = nullptr;
 
-                        Point3D v_center = keyToPoint(vk);
-                        float dist_sq = p.dist_sq(v_center);
-                        if (dist_sq > l_scale_sq) continue;
+            for (const auto& off : neighbor_offsets) {
+                VoxelKey vk = {vk_p.x + off.dx, vk_p.y + off.dy, vk_p.z + off.dz};
+                BlockKey bk = voxelToBlockKey(vk);
+                if (getShardIndex(bk) != s) continue;
 
-                        float k_sp = computeSpatialKernel(dist_sq);
-                        if (k_sp <= 1e-6f) continue;
+                Point3D v_center = keyToPoint(vk);
+                float dist_sq = p.dist_sq(v_center);
+                if (dist_sq > l_scale_sq) continue;
 
-                        Block& blk = getOrCreateBlock(shard, bk, tl_m_i, tl_p_super, tl_p_pred);
-                        int lx, ly, lz_local;
-                        voxelToLocal(vk, lx, ly, lz_local);
+                float k_sp = computeSpatialKernel(dist_sq);
+                if (k_sp <= 1e-6f) continue;
 
-                        if constexpr (std::is_same<ValueType, uint32_t>::value) {
-                            int idx = flatIndex(lx, ly, lz_local, dense_label);
-                            blk.alpha[static_cast<size_t>(idx)] += k_sp * k_sem;
-                        } else {
-                            size_t K_clamp = std::min(prob_ptr->size(), static_cast<size_t>(config_.num_total_classes));
-                            for (size_t c = 0; c < K_clamp; c++) {
-                                int idx = flatIndex(lx, ly, lz_local, static_cast<int>(c));
-                                blk.alpha[static_cast<size_t>(idx)] += w_i * k_sp * (*prob_ptr)[c];
-                            }
-                        }
+                if (!(bk == cached_bk)) {
+                    cached_blk = &getOrCreateBlock(shard, bk, tl_m_i, tl_p_super, tl_p_pred);
+                    cached_bk = bk;
+                }
+                Block& blk = *cached_blk;
+                int lx, ly, lz_local;
+                voxelToLocal(vk, lx, ly, lz_local);
+
+                if constexpr (std::is_same<ValueType, uint32_t>::value) {
+                    int idx = flatIndex(lx, ly, lz_local, dense_label);
+                    blk.alpha[static_cast<size_t>(idx)] += k_sp * k_sem;
+                } else {
+                    size_t K_clamp = std::min(prob_ptr->size(), static_cast<size_t>(config_.num_total_classes));
+                    for (size_t c = 0; c < K_clamp; c++) {
+                        int idx = flatIndex(lx, ly, lz_local, static_cast<int>(c));
+                        blk.alpha[static_cast<size_t>(idx)] += w_i * k_sp * (*prob_ptr)[c];
                     }
                 }
             }

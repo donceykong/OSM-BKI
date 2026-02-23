@@ -207,6 +207,7 @@ public:
 
 private:
     static constexpr int BLOCK_SIZE = 8;
+    static constexpr int SPATIAL_KERNEL_LUT_SIZE = 1024;
 
     // --- Integer helpers (correct for negatives) ---
     static inline int div_floor(int a, int d) {
@@ -270,6 +271,8 @@ private:
 
     // Precomputed structures
     OSMPriorRaster osm_prior_raster_;
+    std::vector<float> spatial_kernel_lut_;
+    float inv_l_scale_sq_;
 
     // Reverse mapping: confusion-matrix row index -> list of dense class indices
     std::vector<std::vector<int>> matrix_idx_to_dense_;
