@@ -19,6 +19,7 @@
 #include <numeric>
 #include <chrono>
 #include <atomic>
+#include <Eigen/Core>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -273,6 +274,9 @@ private:
     OSMPriorRaster osm_prior_raster_;
     std::vector<float> spatial_kernel_lut_;
     float inv_l_scale_sq_;
+
+    // Contiguous confusion matrix for SIMD matvec [K_pred x K_prior]
+    Eigen::MatrixXf confusion_matrix_;
 
     // Reverse mapping: confusion-matrix row index -> list of dense class indices
     std::vector<std::vector<int>> matrix_idx_to_dense_;

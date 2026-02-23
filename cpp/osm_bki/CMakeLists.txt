@@ -26,6 +26,10 @@ target_include_directories(osm_bki_core
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+# Eigen3 for vectorized linear algebra
+find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+target_link_libraries(osm_bki_core PUBLIC Eigen3::Eigen)
+
 # OpenMP is optional; link it when available.
 find_package(OpenMP QUIET)
 if(OpenMP_CXX_FOUND)

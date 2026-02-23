@@ -228,6 +228,11 @@ ContinuousBKI::ContinuousBKI(const Config& config,
     K_pred_ = config.confusion_matrix.size();
     K_prior_ = config.confusion_matrix.empty() ? 0 : static_cast<int>(config.confusion_matrix[0].size());
 
+    confusion_matrix_.resize(K_pred_, K_prior_);
+    for (int i = 0; i < K_pred_; i++)
+        for (int j = 0; j < K_prior_; j++)
+            confusion_matrix_(i, j) = config.confusion_matrix[i][j];
+
 #ifdef _OPENMP
     if (num_threads_ < 0) {
         num_threads_ = omp_get_max_threads();
@@ -403,32 +408,24 @@ void ContinuousBKI::initVoxelAlpha(Block& b, int lx, int ly, int lz, const Point
     }
 }
 
-// computePredPriorFromOSM with pre-allocated buffers (no heap allocs)
 void ContinuousBKI::computePredPriorFromOSM(float x, float y,
                                               std::vector<float>& p_pred_out,
                                               std::vector<float>& buf_m_i,
                                               std::vector<float>& buf_p_super) const {
     const int K = config_.num_total_classes;
 
-    // Reuse buf_m_i
     if (buf_m_i.size() != static_cast<size_t>(K_prior_))
         buf_m_i.resize(static_cast<size_t>(K_prior_));
     getOSMPrior(x, y, buf_m_i);
 
-    // Reuse buf_p_super
     if (buf_p_super.size() != static_cast<size_t>(K_pred_))
         buf_p_super.resize(static_cast<size_t>(K_pred_));
-    std::fill(buf_p_super.begin(), buf_p_super.end(), 0.0f);
 
-    for (int i = 0; i < K_pred_; i++) {
-        float acc = 0.0f;
-        for (int j = 0; j < K_prior_; j++) {
-            acc += config_.confusion_matrix[static_cast<size_t>(i)][static_cast<size_t>(j)] * buf_m_i[j];
-        }
-        buf_p_super[i] = acc;
-    }
+    Eigen::Map<Eigen::VectorXf> m_i_vec(buf_m_i.data(), K_prior_);
+    Eigen::Map<Eigen::VectorXf> p_super_vec(buf_p_super.data(), K_pred_);
+    p_super_vec.noalias() = confusion_matrix_ * m_i_vec;
 
-    // Expand to full class space
+    // Expand to full class space (sparse scatter -- stays manual)
     if (p_pred_out.size() != static_cast<size_t>(K))
         p_pred_out.resize(static_cast<size_t>(K));
     std::fill(p_pred_out.begin(), p_pred_out.end(), 0.0f);
@@ -445,10 +442,9 @@ void ContinuousBKI::computePredPriorFromOSM(float x, float y,
         }
     }
 
-    float sum = 0.0f;
-    for (int c = 0; c < K; c++) sum += p_pred_out[c];
-    if (sum > epsilon_)
-        for (int c = 0; c < K; c++) p_pred_out[c] /= sum;
+    Eigen::Map<Eigen::VectorXf> p_pred_vec(p_pred_out.data(), K);
+    float sum = p_pred_vec.sum();
+    if (sum > epsilon_) p_pred_vec /= sum;
 }
 
 float ContinuousBKI::computeSpatialKernel(float dist_sq) const {
@@ -505,39 +501,31 @@ void ContinuousBKI::getOSMPrior(float x, float y, std::vector<float>& m_i) const
     }
 
     // Fallback: compute on the fly (no raster built)
-    float sum = 0.0f;
     for (int k = 0; k < K_prior_; k++) {
         float dist = computeDistanceToClass(x, y, k);
-        float score = 1.0f / (1.0f + std::exp((dist / delta_) - 4.6f));
-        m_i[static_cast<size_t>(k)] = score;
-        sum += score;
+        m_i[k] = 1.0f / (1.0f + std::exp((dist / delta_) - 4.6f));
     }
-    if (sum > epsilon_) {
-        for (int k = 0; k < K_prior_; k++) m_i[k] /= sum;
-    }
+    Eigen::Map<Eigen::VectorXf> m_i_vec(m_i.data(), K_prior_);
+    float sum = m_i_vec.sum();
+    if (sum > epsilon_) m_i_vec /= sum;
 }
 
-// getSemanticKernel with pre-allocated buffer for expected_obs
 float ContinuousBKI::getSemanticKernel(int matrix_idx, const std::vector<float>& m_i,
                                         std::vector<float>& buf_expected_obs) const {
     if (!use_semantic_kernel_) return 1.0f;
     if (matrix_idx < 0 || matrix_idx >= K_pred_) return 1.0f;
 
-    float c_xi = *std::max_element(m_i.begin(), m_i.end());
+    Eigen::Map<const Eigen::VectorXf> m_i_vec(m_i.data(), K_prior_);
+    float c_xi = m_i_vec.maxCoeff();
 
     if (buf_expected_obs.size() != static_cast<size_t>(K_pred_))
         buf_expected_obs.resize(static_cast<size_t>(K_pred_));
-    std::fill(buf_expected_obs.begin(), buf_expected_obs.end(), 0.0f);
 
-    for (int i = 0; i < K_pred_; i++) {
-        float acc = 0.0f;
-        for (int j = 0; j < K_prior_; j++) {
-            acc += config_.confusion_matrix[static_cast<size_t>(i)][static_cast<size_t>(j)] * m_i[static_cast<size_t>(j)];
-        }
-        buf_expected_obs[i] = acc;
-    }
-    float numerator = buf_expected_obs[static_cast<size_t>(matrix_idx)];
-    float denominator = *std::max_element(buf_expected_obs.begin(), buf_expected_obs.end()) + epsilon_;
+    Eigen::Map<Eigen::VectorXf> obs_vec(buf_expected_obs.data(), K_pred_);
+    obs_vec.noalias() = confusion_matrix_ * m_i_vec;
+
+    float numerator = obs_vec(matrix_idx);
+    float denominator = obs_vec.maxCoeff() + epsilon_;
     float s_i = numerator / denominator;
     return (1.0f - c_xi) + (c_xi * s_i);
 }
@@ -908,33 +896,25 @@ std::vector<ResultType> ContinuousBKI::infer_impl(const std::vector<Point3D>& po
                 int lx, ly, lz;
                 voxelToLocal(k, lx, ly, lz);
                 
+                Eigen::Map<const Eigen::VectorXf> alpha_vec(
+                    blk->alpha.data() + flatIndex(lx, ly, lz, 0), K);
+
                 if (!return_probs) {
-                    // Hard label inference
-                    float sum = 0.0f;
-                    int best_idx = 0;
-                    float best_val = -1.0f;
-                    for (int c = 0; c < K; c++) {
-                        float v = blk->alpha[static_cast<size_t>(flatIndex(lx, ly, lz, c))];
-                        sum += v;
-                        if (v > best_val) { best_val = v; best_idx = c; }
-                    }
+                    float sum = alpha_vec.sum();
                     if (sum > epsilon_) {
-                        int raw = (best_idx >= 0 && best_idx < static_cast<int>(dense_to_raw_flat_.size()))
-                                  ? dense_to_raw_flat_[static_cast<size_t>(best_idx)] : -1;
+                        Eigen::Index best_idx;
+                        alpha_vec.maxCoeff(&best_idx);
+                        int raw = (best_idx >= 0 && best_idx < static_cast<Eigen::Index>(dense_to_raw_flat_.size()))
+                                  ? dense_to_raw_flat_[best_idx] : -1;
                         if constexpr (std::is_same<ResultType, uint32_t>::value) {
                             results[i] = (raw >= 0) ? static_cast<uint32_t>(raw) : 0;
                         }
                         found_in_block = true;
                     }
                 } else {
-                    // Probabilities inference
-                    float sum = 0.0f;
-                    for (int c = 0; c < K; c++) {
-                        tl_probs[c] = blk->alpha[static_cast<size_t>(flatIndex(lx, ly, lz, c))];
-                        sum += tl_probs[c];
-                    }
+                    float sum = alpha_vec.sum();
                     if (sum > epsilon_) {
-                        for (int c = 0; c < K; c++) tl_probs[c] /= sum;
+                        Eigen::Map<Eigen::VectorXf>(tl_probs.data(), K) = alpha_vec / sum;
                         if constexpr (std::is_same<ResultType, std::vector<float>>::value) {
                             results[i] = tl_probs;
                         }
@@ -951,9 +931,11 @@ std::vector<ResultType> ContinuousBKI::infer_impl(const std::vector<Point3D>& po
                 
                 if (!return_probs) {
                     if (!tl_p_pred.empty()) {
-                        int best = static_cast<int>(std::max_element(tl_p_pred.begin(), tl_p_pred.end()) - tl_p_pred.begin());
-                        int raw = (best >= 0 && best < static_cast<int>(dense_to_raw_flat_.size())) 
-                                  ? dense_to_raw_flat_[static_cast<size_t>(best)] : -1;
+                        Eigen::Map<Eigen::VectorXf> pred_vec(tl_p_pred.data(), K);
+                        Eigen::Index best;
+                        pred_vec.maxCoeff(&best);
+                        int raw = (best >= 0 && best < static_cast<Eigen::Index>(dense_to_raw_flat_.size()))
+                                  ? dense_to_raw_flat_[best] : -1;
                         if constexpr (std::is_same<ResultType, uint32_t>::value) {
                             results[i] = (raw >= 0) ? static_cast<uint32_t>(raw) : 0;
                         }
