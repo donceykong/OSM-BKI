@@ -83,7 +83,6 @@ struct OSMData {
 struct Config {
     std::map<int, std::string> labels;
     std::vector<std::vector<float>> confusion_matrix; // [K_pred x K_prior]
-    std::map<int, int> label_to_matrix_idx;
     std::map<std::string, int> osm_class_map;
     std::map<int, float> height_filter_map;
     std::vector<std::string> osm_categories;
@@ -238,9 +237,8 @@ private:
     };
 
     // --- Flat lookup tables for O(1) label mapping ---
-    std::vector<int> raw_to_dense_flat_;   // raw_label -> dense, -1 if unmapped
+    std::vector<int> raw_to_dense_flat_;   // raw_label -> dense (= matrix row), -1 if unmapped
     std::vector<int> dense_to_raw_flat_;   // dense -> raw_label, -1 if unmapped
-    std::vector<int> label_to_matrix_flat_; // raw_label -> matrix_idx, -1 if unmapped
     int max_raw_label_ = 0;
 
 private:
@@ -278,10 +276,8 @@ private:
     float inv_l_scale_sq_;
 
     // Contiguous confusion matrix for SIMD matvec [K_pred x K_prior]
+    // K_pred == num_total_classes; dense index IS the matrix row.
     Eigen::MatrixXf confusion_matrix_;
-
-    // Reverse mapping: confusion-matrix row index -> list of dense class indices
-    std::vector<std::vector<int>> matrix_idx_to_dense_;
 };
 
 } // namespace continuous_bki

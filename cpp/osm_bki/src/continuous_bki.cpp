@@ -246,24 +246,11 @@ ContinuousBKI::ContinuousBKI(const Config& config,
 
     block_shards_.resize(static_cast<size_t>(num_threads_));
 
-    // Build reverse mapping: confusion-matrix row index -> dense class indices.
-    matrix_idx_to_dense_.resize(static_cast<size_t>(K_pred_));
-    for (const auto& kv : config_.label_to_matrix_idx) {
-        int raw_label = kv.first;
-        int matrix_idx = kv.second;
-        auto it = config_.raw_to_dense.find(raw_label);
-        if (it != config_.raw_to_dense.end() && matrix_idx >= 0 && matrix_idx < K_pred_) {
-            matrix_idx_to_dense_[static_cast<size_t>(matrix_idx)].push_back(it->second);
-        }
-    }
-
-    // Build flat lookup tables for O(1) label mapping
+    // Build flat lookup tables for O(1) label mapping.
+    // dense index == confusion-matrix row (labels are 0..N_COMMON-1).
     max_raw_label_ = 0;
     for (const auto& kv : config_.raw_to_dense) {
         if (kv.first > max_raw_label_) max_raw_label_ = kv.first;
-    }
-    for (const auto& kv : config_.label_to_matrix_idx) {
-        if (kv.first > max_raw_label_) max_raw_label_ = static_cast<int>(kv.first);
     }
 
     raw_to_dense_flat_.assign(static_cast<size_t>(max_raw_label_ + 1), -1);
@@ -277,11 +264,6 @@ ContinuousBKI::ContinuousBKI(const Config& config,
         if (kv.first >= 0 && kv.first < max_dense) {
             dense_to_raw_flat_[static_cast<size_t>(kv.first)] = kv.second;
         }
-    }
-
-    label_to_matrix_flat_.assign(static_cast<size_t>(max_raw_label_ + 1), -1);
-    for (const auto& kv : config_.label_to_matrix_idx) {
-        label_to_matrix_flat_[static_cast<size_t>(kv.first)] = kv.second;
     }
 
     inv_l_scale_sq_ = 1.0f / (l_scale_ * l_scale_);
@@ -427,21 +409,12 @@ void ContinuousBKI::computePredPriorFromOSM(float x, float y,
     Eigen::Map<Eigen::VectorXf> p_super_vec(buf_p_super.data(), K_pred_);
     p_super_vec.noalias() = confusion_matrix_ * m_i_vec;
 
-    // Expand to full class space (sparse scatter -- stays manual)
+    // Dense index == matrix row, so prior maps directly to p_pred.
     if (p_pred_out.size() != static_cast<size_t>(K))
         p_pred_out.resize(static_cast<size_t>(K));
     std::fill(p_pred_out.begin(), p_pred_out.end(), 0.0f);
-
-    for (int i = 0; i < K_pred_; i++) {
-        const auto& dense_labels = matrix_idx_to_dense_[static_cast<size_t>(i)];
-        if (!dense_labels.empty()) {
-            float share = buf_p_super[i] / static_cast<float>(dense_labels.size());
-            for (int d : dense_labels) {
-                if (d >= 0 && d < K) {
-                    p_pred_out[static_cast<size_t>(d)] += share;
-                }
-            }
-        }
+    for (int i = 0; i < K_pred_ && i < K; i++) {
+        p_pred_out[static_cast<size_t>(i)] = buf_p_super[i];
     }
 
     Eigen::Map<Eigen::VectorXf> p_pred_vec(p_pred_out.data(), K);
@@ -580,7 +553,7 @@ void ContinuousBKI::update_impl(const std::vector<ValueType>& values,
                     getOSMPrior(points[i].x, points[i].y, tl_m_i);
                     int raw_label = static_cast<int>(values[i]);
                     int matrix_idx = (raw_label >= 0 && raw_label <= max_raw_label_)
-                                     ? label_to_matrix_flat_[static_cast<size_t>(raw_label)] : -1;
+                                     ? raw_to_dense_flat_[static_cast<size_t>(raw_label)] : -1;
                     if (matrix_idx >= 0) {
                         point_k_sem[i] = getSemanticKernel(matrix_idx, tl_m_i, tl_expected_obs);
                     }
@@ -593,7 +566,7 @@ void ContinuousBKI::update_impl(const std::vector<ValueType>& values,
                 getOSMPrior(points[i].x, points[i].y, tl_m_i);
                 int raw_label = static_cast<int>(values[i]);
                 int matrix_idx = (raw_label >= 0 && raw_label <= max_raw_label_)
-                                 ? label_to_matrix_flat_[static_cast<size_t>(raw_label)] : -1;
+                                 ? raw_to_dense_flat_[static_cast<size_t>(raw_label)] : -1;
                 if (matrix_idx >= 0) {
                     point_k_sem[i] = getSemanticKernel(matrix_idx, tl_m_i, tl_expected_obs);
                 }

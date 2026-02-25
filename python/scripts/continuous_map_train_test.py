@@ -18,6 +18,9 @@ from script_utils import (
     load_body_to_lidar, load_poses_csv, transform_points_to_world,
     load_scan, load_labels, find_label_file, get_frame_number, ConfigReader
 )
+from label_utils import (
+    detect_dataset, build_to_common_lut, apply_common_lut, IGNORE_LABELS
+)
 
 
 def compute_metrics(pred, gt, ignore_label=0):
@@ -53,7 +56,11 @@ def main():
     parser.add_argument("--config", required=True, help="Path to YAML config")
     parser.add_argument("--pose", default=None, help="CSV poses (num,t,x,y,z,qx,qy,qz,qw) for world-frame transform (optional)")
     parser.add_argument("--calib", default="example_data/hhs_calib.yaml", help="Path to hhs_calib.yaml (body→LiDAR calibration, body/os_sensor/T)")
-    parser.add_argument("--gt-dir", default=None, help="Optional: directory of ground-truth labels for test half metrics")
+    parser.add_argument("--gt-dir", required=True, help="Directory of ground-truth labels for test half metrics")
+    parser.add_argument("--dataset-pred-type", choices=["mcd", "semkitti", "kitti360"], default=None,
+                        help="Dataset type for prediction labels (overrides autodetect)")
+    parser.add_argument("--dataset-gt-type", choices=["mcd", "semkitti", "kitti360"], default=None,
+                        help="Dataset type for GT labels (overrides autodetect)")
     parser.add_argument("--output-dir", default=None, help="Optional: save refined labels for test scans here")
     parser.add_argument("--map-state", default=None, help="Optional: path to save trained map state")
     parser.add_argument("--offset", type=int, default=1, help="Train on every Nth scan; use in-between scans for testing (N>=1)")
@@ -139,6 +146,32 @@ def main():
         f"({pct_total:.1f}% of total, {pct_candidates:.1f}% of candidate test set)."
     )
 
+    # --- Autodetect dataset type for pred and GT labels, build common-taxonomy LUTs ---
+    _first_pred_path = find_label_file(label_dir, scan_files[0].stem)
+    if _first_pred_path:
+        _sample = load_labels(_first_pred_path)
+        pred_dataset = args.dataset_pred_type or detect_dataset(_sample)
+    else:
+        if args.dataset_pred_type is None:
+            print("WARNING: Could not find a prediction label file to autodetect dataset type; "
+                  "defaulting to 'mcd'. Use --dataset-pred-type to override.", file=sys.stderr)
+        pred_dataset = args.dataset_pred_type or "mcd"
+    pred_lut = build_to_common_lut(pred_dataset)
+    print(f"Prediction labels: dataset={pred_dataset}")
+
+    gt_dir_path = Path(args.gt_dir)
+    _first_gt_path = find_label_file(args.gt_dir, scan_files[0].stem)
+    if _first_gt_path:
+        _sample_gt = load_labels(_first_gt_path)
+        gt_dataset = args.dataset_gt_type or detect_dataset(_sample_gt)
+    else:
+        if args.dataset_gt_type is None:
+            print("WARNING: Could not find a GT label file to autodetect dataset type; "
+                  "defaulting to pred dataset. Use --dataset-gt-type to override.", file=sys.stderr)
+        gt_dataset = args.dataset_gt_type or pred_dataset
+    gt_lut = build_to_common_lut(gt_dataset)
+    print(f"GT labels:         dataset={gt_dataset}")
+
     # Resolve init_rel_pos: CLI overrides config YAML's init_rel_pos_day_06
     init_rel_pos = None
     if args.init_rel_pos is not None:
@@ -208,7 +241,8 @@ def main():
                 labels = labels[:min_len]
             if poses is not None and frame is not None and frame in poses:
                 points_xyz = transform_points_to_world(points_xyz, poses[frame], body_to_lidar, init_rel_pos)
-            bki.update(labels, points_xyz)
+            labels_common = apply_common_lut(labels, pred_lut).astype(np.uint32)
+            bki.update(labels_common, points_xyz)
         return bki
 
     # Build maps: with semantic kernel, without semantic kernel, and without spatial kernel
@@ -254,7 +288,8 @@ def main():
                 labels = labels[:min_len]
             if poses is not None and frame is not None and frame in poses:
                 points_xyz = transform_points_to_world(points_xyz, poses[frame], body_to_lidar, init_rel_pos)
-            bki.update(labels, points_xyz)
+            labels_common = apply_common_lut(labels, pred_lut).astype(np.uint32)
+            bki.update(labels_common, points_xyz)
         return bki
 
     bki_nokernels = train_bki_custom(use_semantic_kernel=False, use_spatial_kernel=False)
@@ -294,25 +329,29 @@ def main():
             pred_nosem.astype(np.uint32).tofile(str(Path(args.output_dir) / f"{stem}_refined_nosem.label"))
             pred_nokernels.astype(np.uint32).tofile(str(Path(args.output_dir) / f"{stem}_refined_nokernels.label"))
 
-        if args.gt_dir:
-            gt_path = find_label_file(args.gt_dir, stem)
-            if gt_path:
-                gt = load_labels(gt_path)
-                
-                # Load baseline (input) labels
-                input_path = find_label_file(label_dir, stem)
-                input_labels = load_labels(input_path) if input_path else None
+        gt_path = find_label_file(args.gt_dir, stem)
+        if gt_path:
+            gt_raw = load_labels(gt_path)
+            gt = apply_common_lut(gt_raw, gt_lut).astype(np.uint32)
 
-                n = min(len(gt), len(pred_sem), len(pred_nosem), len(pred_nokernels))
+            # Load baseline (input) labels and convert to common
+            input_path = find_label_file(label_dir, stem)
+            input_labels = None
+            if input_path:
+                input_labels = apply_common_lut(load_labels(input_path), pred_lut).astype(np.uint32)
+
+            # infer() already returns common IDs (BKI trained on common labels)
+            n = min(len(gt), len(pred_sem), len(pred_nosem), len(pred_nokernels))
+            if input_labels is not None:
+                n = min(n, len(input_labels))
+
+            if n > 0:
+                ignore = IGNORE_LABELS[0] if IGNORE_LABELS else 0
+                all_metrics_sem.append(compute_metrics(pred_sem[:n], gt[:n], ignore_label=ignore))
+                all_metrics_nosem.append(compute_metrics(pred_nosem[:n], gt[:n], ignore_label=ignore))
+                all_metrics_nokernels.append(compute_metrics(pred_nokernels[:n], gt[:n], ignore_label=ignore))
                 if input_labels is not None:
-                    n = min(n, len(input_labels))
-                
-                if n > 0:
-                    all_metrics_sem.append(compute_metrics(pred_sem[:n], gt[:n]))
-                    all_metrics_nosem.append(compute_metrics(pred_nosem[:n], gt[:n]))
-                    all_metrics_nokernels.append(compute_metrics(pred_nokernels[:n], gt[:n]))
-                    if input_labels is not None:
-                        all_metrics_baseline.append(compute_metrics(input_labels[:n], gt[:n]))
+                    all_metrics_baseline.append(compute_metrics(input_labels[:n], gt[:n], ignore_label=ignore))
 
     if all_metrics_sem:
         acc_sem = np.mean([m["accuracy"] for m in all_metrics_sem])
@@ -342,10 +381,8 @@ def main():
     else:
         if not test_files:
             print("  No test scans selected by offset. Increase --offset to create holdout scans.")
-        elif args.gt_dir:
-            print("  No test scans had matching GT labels.")
         else:
-            print("  No --gt-dir provided; skipping metrics.")
+            print("  No test scans had matching GT labels.")
 
     print("\nDone.")
     return 0
